@@ -66,22 +66,23 @@ theorem nil_mem {ι : Type} [DecidableEq ι] (B : Finset ι) (k : ℕ) : [] ∈ 
 
 theorem append_mem {ι : Type} [DecidableEq ι] {B : Finset ι} {k : ℕ} {l : List ι} {i : ι}
     (hl : l ∈ words B k) (hi : i ∈ B) : l ++ [i] ∈ words B (k + 1) := by
-  simp only [words, mem_insert, mem_image, mem_product, Prod.exists]
-  exact Or.inr ⟨l, i, ⟨hl, hi⟩, rfl⟩
+  exact mem_insert_of_mem (mem_image_of_mem _ (mk_mem_product hl hi))
 
 theorem mem_letters {ι : Type} [DecidableEq ι] (B : Finset ι) :
     ∀ (k : ℕ), ∀ l ∈ words B k, ∀ i ∈ l, i ∈ B := by
   intro k
   induction k with
-  | zero => intro l hl i hi; simp [words] at hl; subst hl; simp at hi
+  | zero => simp [words]
   | succ k ih =>
-    intro l hl i hi
-    simp only [words, mem_insert, mem_image, mem_product, Prod.exists] at hl
-    rcases hl with rfl | ⟨l', j, ⟨hl', hj⟩, rfl⟩
-    · simp at hi
-    · rcases List.mem_append.1 hi with h | h
-      · exact ih l' hl' i h
-      · simp at h; subst h; exact hj
+    simp only [words, forall_mem_insert, forall_mem_image, List.forall_mem_append]
+    simpa using fun l i hl => And.intro (ih l hl)
+
+/-- The empty word and unique snocs partition each successor level. -/
+theorem sum_words_snoc {ι M : Type} [DecidableEq ι] [AddCommMonoid M]
+    (B : Finset ι) (k : ℕ) (c : List ι → M) :
+    ∑ l ∈ words B (k + 1), c l = c [] + ∑ i ∈ B, ∑ l ∈ words B k, c (l ++ [i]) := by
+  rw [words, sum_insert (by simp), sum_image (fun _ _ _ _ h =>
+    Prod.ext_iff.mpr (List.append_singleton_inj.mp h)), sum_product, sum_comm]
 
 theorem root_le {x y : ℝ} {m : ℕ} (hm : m ≠ 0) (hx : 0 ≤ x) (hy : 0 ≤ y) (h : x ^ m ≤ y ^ m) :
     x ≤ y := (pow_le_pow_iff_left₀ hx hy hm).1 h
@@ -100,107 +101,80 @@ theorem step {G ι : Type} [DecidableEq ι] (B : Finset ι) (q : G → ℝ) (�
   induction k with
   | zero =>
     refine ⟨1, zero_le_one, ?_⟩
-    intro ψ _ c _ hc g
-    have h := hc [] (nil_mem B 0) g
-    simp only [List.foldr_nil] at h
-    simp [words]
-    linarith
+    simp [words, mul_comm]
   | succ k ih =>
     obtain ⟨Ck, hCk0, hCk⟩ := ih
-    have hK0 : 0 ≤ K := by linarith
-    have hC0 : 0 ≤ C := by linarith
-    have hQ0 : ∀ g, 0 ≤ Q g := fun g => by linarith [hQ1 g]
-    have hq0 : ∀ g, 0 ≤ q g := fun g => by linarith [hq g]
-    set M := K / δ₀ with hM
-    have hM0 : 0 ≤ M := div_nonneg hK0 hδ₀.le
-    set X1 := M ^ (k + 1)
-    set X2 := C * K ^ (k + 1) * Ck * C ^ A * ((B.card : ℝ) * ((words B k).card : ℝ))
-    have hX1 : 0 ≤ X1 := pow_nonneg hM0 _
-    have hX2 : 0 ≤ X2 := by positivity
-    refine ⟨X1 + X2, add_nonneg hX1 hX2, ?_⟩
+    set X1 := (K / δ₀) ^ (k + 1)
+    set D := K ^ k * Ck * C ^ A
+    set X2 := C * K * D
+    refine ⟨max X1 X2, by positivity, ?_⟩
     intro ψ hψ c hc0 hc g
+    have hQg := zero_lt_one.trans_le (hQ1 g)
     set T := ∑ l ∈ words B (k + 1), c l with hT
     have hT0 : 0 ≤ T := sum_nonneg hc0
-    have hqA : 0 ≤ q g ^ A := pow_nonneg (hq0 g) _
+    have hqg := hq g
     obtain ⟨δ, hδ, _, hδq, hcase⟩ := hgain g
     have hδQ : δ * Q g ≤ K := by
-      apply root_le hm (mul_nonneg hδ.le (hQ0 g)) hK0
-      rw [mul_pow, hQm, hKm]; linarith [mul_comm (q g) (δ ^ m)]
-    have hQgw : ∀ w, q g ≤ C * q w → Q g ≤ K * Q w := by
-      intro w hw
-      apply root_le hm (hQ0 g) (mul_nonneg hK0 (hQ0 w))
-      rw [mul_pow, hQm, hKm, hQm]; exact hw
-    suffices h : ‖ψ g‖ * Q g ^ (k + 1) ≤ X1 * q g ^ A * T ∨
-        ‖ψ g‖ * Q g ^ (k + 1) ≤ X2 * q g ^ A * T by
-      have e1 : 0 ≤ X1 * q g ^ A * T := by positivity
-      have e2 : 0 ≤ X2 * q g ^ A * T := mul_nonneg (mul_nonneg hX2 hqA) hT0
-      rcases h with h | h <;> nlinarith
+      apply root_le hm (by positivity) (by positivity)
+      simpa [mul_pow, hQm, hKm, mul_comm] using hδq
     rcases hcase with hδ0 | ⟨Ω, hΩ, hbound⟩
-    · left
-      have hQM : Q g ≤ M := by
-        rw [hM, le_div_iff₀ hδ₀]; nlinarith [hQ0 g]
-      have h0 : ‖ψ g‖ ≤ c [] * q g ^ A := by simpa using hc [] (nil_mem B _) g
-      have hcT : c [] ≤ T := single_le_sum (f := c) (fun l hl => hc0 l hl) (nil_mem B _)
-      have hQk : Q g ^ (k + 1) ≤ X1 := pow_le_pow_left₀ (hQ0 g) hQM _
-      calc ‖ψ g‖ * Q g ^ (k + 1) ≤ (c [] * q g ^ A) * X1 :=
-            mul_le_mul h0 hQk (pow_nonneg (hQ0 g) _) (by nlinarith [norm_nonneg (ψ g)])
-        _ ≤ (T * q g ^ A) * X1 := by gcongr
+    · have hQM : Q g ≤ K / δ₀ := by
+        rw [le_div_iff₀ hδ₀]; nlinarith
+      have h0 := hc [] (nil_mem B _) g
+      have hcT : c [] ≤ T := single_le_sum hc0 (nil_mem B _)
+      calc ‖ψ g‖ * Q g ^ (k + 1) ≤ (T * q g ^ A) * X1 := by
+             dsimp only [X1]
+             gcongr
+             exact h0.trans (by gcongr)
         _ = X1 * q g ^ A * T := by ring
-    · right
-      set S : ι → ℝ := fun i => ∑ l ∈ words B k, c (l ++ [i]) with hS
-      have hS0 : ∀ i ∈ B, 0 ≤ S i := fun i hi =>
-        sum_nonneg (fun l hl => hc0 _ (append_mem hl hi))
-      have hQgk : 0 < Q g ^ k := pow_pos (by linarith [hQ1 g]) _
-      set P := K ^ k * Ck * C ^ A * q g ^ A with hP
-      have hP0 : 0 ≤ P := by positivity
-      set ci : ι → ℝ := fun i => P * S i / Q g ^ k with hci
-      have hDr : ∀ i ∈ B, 0 ≤ ci i ∧ ∀ w ∈ Ω, ‖Dr i ψ w‖ ≤ ci i := by
+        _ ≤ max X1 X2 * q g ^ A * T := by gcongr; exact le_max_left _ _
+    · set S : ι → ℝ := fun i => ∑ l ∈ words B k, c (l ++ [i])
+      set P := D * q g ^ A / Q g ^ k
+      have hmain : ‖ψ g‖ ≤ C * δ * (P * ∑ i ∈ B, S i) := by
+        rw [mul_sum]
+        apply hbound ψ hψ
         intro i hi
-        refine ⟨div_nonneg (mul_nonneg hP0 (hS0 i hi)) hQgk.le, ?_⟩
+        have hSi : 0 ≤ S i := sum_nonneg (fun l hl => hc0 _ (append_mem hl hi))
+        refine ⟨by positivity, ?_⟩
         intro w hw
+        have hQw := hQ1 w
+        have hqw := hq w
         have hb := hCk (Dr i ψ) (hcl ψ hψ i hi) (fun l => c (l ++ [i]))
           (fun l hl => hc0 _ (append_mem hl hi))
           (fun l hl g' => by
-            have := hc (l ++ [i]) (append_mem hl hi) g'
-            simpa [List.foldr_append] using this) w
-        have h1 : Q g ^ k ≤ K ^ k * Q w ^ k := by
-          rw [← mul_pow]; exact pow_le_pow_left₀ (hQ0 g) (hQgw w (hΩ w hw).2) k
-        have h2 : q w ^ A ≤ C ^ A * q g ^ A := by
-          rw [← mul_pow]; exact pow_le_pow_left₀ (hq0 w) (hΩ w hw).1 A
-        rw [hci, le_div_iff₀ hQgk]
-        calc ‖Dr i ψ w‖ * Q g ^ k ≤ ‖Dr i ψ w‖ * (K ^ k * Q w ^ k) :=
-              mul_le_mul_of_nonneg_left h1 (norm_nonneg _)
+            simpa [List.foldr_append] using hc (l ++ [i]) (append_mem hl hi) g') w
+        have hQgw : Q g ≤ K * Q w := by
+          apply root_le hm hQg.le (by positivity)
+          simpa [mul_pow, hQm, hKm] using (hΩ w hw).2
+        dsimp only [P]
+        rw [div_mul_eq_mul_div, le_div_iff₀ (pow_pos hQg _)]
+        calc ‖Dr i ψ w‖ * Q g ^ k ≤ ‖Dr i ψ w‖ * (K * Q w) ^ k := by gcongr
           _ = K ^ k * (‖Dr i ψ w‖ * Q w ^ k) := by ring
-          _ ≤ K ^ k * (Ck * q w ^ A * S i) :=
-              mul_le_mul_of_nonneg_left hb (pow_nonneg hK0 _)
-          _ ≤ K ^ k * (Ck * (C ^ A * q g ^ A) * S i) := by
-              apply mul_le_mul_of_nonneg_left _ (pow_nonneg hK0 _)
-              apply mul_le_mul_of_nonneg_right _ (hS0 i hi)
-              exact mul_le_mul_of_nonneg_left h2 hCk0
-          _ = P * S i := by rw [hP]; ring
-      have hmain := hbound ψ hψ ci hDr
-      have hsum : ∑ i ∈ B, ci i = P * (∑ i ∈ B, S i) / Q g ^ k := by
-        rw [hci]; simp only; rw [← Finset.sum_div, ← Finset.mul_sum]
-      have hSsum : ∑ i ∈ B, S i ≤ (B.card : ℝ) * ((words B k).card : ℝ) * T := by
-        calc ∑ i ∈ B, S i ≤ ∑ i ∈ B, ∑ l ∈ words B k, T :=
-              sum_le_sum (fun i hi => sum_le_sum (fun l hl =>
-                single_le_sum (f := c) (fun l hl => hc0 l hl) (append_mem hl hi)))
-          _ = (B.card : ℝ) * ((words B k).card : ℝ) * T := by
-              simp [sum_const, nsmul_eq_mul]; ring
-      have hSum0 : 0 ≤ ∑ i ∈ B, S i := sum_nonneg hS0
-      calc ‖ψ g‖ * Q g ^ (k + 1) ≤ (C * δ * ∑ i ∈ B, ci i) * Q g ^ (k + 1) :=
-            mul_le_mul_of_nonneg_right hmain (pow_nonneg (hQ0 g) _)
-        _ = C * (δ * Q g) * (P * ∑ i ∈ B, S i) := by
-            rw [hsum]; field_simp; ring
-        _ ≤ C * K * (P * ((B.card : ℝ) * ((words B k).card : ℝ) * T)) := by
-            apply mul_le_mul (mul_le_mul_of_nonneg_left hδQ hC0)
-              (mul_le_mul_of_nonneg_left hSsum hP0) (mul_nonneg hP0 hSum0) (mul_nonneg hC0 hK0)
-        _ = X2 * q g ^ A * T := by rw [hP]; ring
+          _ ≤ K ^ k * (Ck * q w ^ A * S i) := by gcongr
+          _ ≤ K ^ k * (Ck * (C * q g) ^ A * S i) := by
+              gcongr
+              exact (hΩ w hw).1
+          _ = D * q g ^ A * S i := by dsimp [D]; ring
+      have hSsum : ∑ i ∈ B, S i ≤ T := by
+        rw [hT, sum_words_snoc]
+        exact le_add_of_nonneg_left (hc0 [] (nil_mem B _))
+      calc ‖ψ g‖ * Q g ^ (k + 1) ≤ (C * δ * (P * T)) * Q g ^ (k + 1) := by
+            gcongr
+            exact hmain.trans (by gcongr)
+        _ = C * (δ * Q g) * (D * q g ^ A * T) := by
+            dsimp [P]; field_simp; ring
+        _ ≤ C * K * (D * q g ^ A * T) := by gcongr
+        _ = X2 * q g ^ A * T := by dsimp [X2]; ring
+        _ ≤ max X1 X2 * q g ^ A * T := by gcongr; exact le_max_right _ _
 
 end GlobalTheory.IterGain
 
 namespace GlobalTheory
 
+theorem exists_root_ge_one {x : ℝ} {m : ℕ} (hx : 1 ≤ x) (hm : m ≠ 0) :
+    ∃ y : ℝ, 1 ≤ y ∧ y ^ m = x :=
+  ⟨x ^ ((m : ℝ)⁻¹), Real.one_le_rpow hx (by positivity),
+    Real.rpow_inv_natCast_pow (zero_le_one.trans hx) hm⟩
 
 open GlobalTheory.IterGain in
 theorem iterated_gain_rapid_decay : ∀ (G ι : Type) (B : Finset ι) (q : G → ℝ) (𝓒 : Set (G → ℂ))
@@ -214,53 +188,35 @@ theorem iterated_gain_rapid_decay : ∀ (G ι : Type) (B : Finset ι) (q : G →
         ∀ g, ‖ψ g‖ * q g ^ N ≤ C' * ∑ l ∈ L, c l := by
   intro G ι B q 𝓒 Dr b C δ₀ hδ₀ hq hcl hgain A N
   classical
-  set m := b + 1 with hmdef
+  let m := b + 1
   have hm : m ≠ 0 := Nat.succ_ne_zero b
-  set C1 := max C 1 with hC1
+  let C1 := max C 1
   have hC1 : 1 ≤ C1 := le_max_right _ _
   have hCC1 : C ≤ C1 := le_max_left _ _
-  have hq0 : ∀ g, 0 ≤ q g := fun g => by linarith [hq g]
-  have hgain' : ∀ g, ∃ δ : ℝ, 0 < δ ∧ δ ≤ 1 ∧ q g * δ ^ m ≤ C1 ∧ (δ₀ ≤ δ ∨ ∃ Ω : Set G,
-      (∀ w ∈ Ω, q w ≤ C1 * q g ∧ q g ≤ C1 * q w) ∧ ∀ ψ ∈ 𝓒, ∀ c : ι → ℝ,
-        (∀ i ∈ B, 0 ≤ c i ∧ ∀ w ∈ Ω, ‖Dr i ψ w‖ ≤ c i) → ‖ψ g‖ ≤ C1 * δ * ∑ i ∈ B, c i) := by
-    intro g
-    obtain ⟨δ, hδ, hδ1, hqδ, hcase⟩ := hgain g
-    refine ⟨δ, hδ, hδ1, ?_, ?_⟩
-    · have h1 : q g * δ ^ m ≤ q g * δ ^ b := by
-        rw [hmdef, pow_succ, ← mul_assoc]
-        exact mul_le_of_le_one_right (mul_nonneg (hq0 g) (pow_nonneg hδ.le _)) hδ1
-      linarith
-    · rcases hcase with h | ⟨Ω, hΩ, hbd⟩
-      · exact Or.inl h
-      · refine Or.inr ⟨Ω, fun w hw => ⟨?_, ?_⟩, ?_⟩
-        · exact (hΩ w hw).1.trans (mul_le_mul_of_nonneg_right hCC1 (hq0 g))
-        · exact (hΩ w hw).2.trans (mul_le_mul_of_nonneg_right hCC1 (hq0 w))
+  have hq0 : ∀ g, 0 ≤ q g := fun g => zero_le_one.trans (hq g)
+  obtain ⟨K, hK1, hKm⟩ := exists_root_ge_one hC1 hm
+  choose Q hQ1 hQm using fun g => exists_root_ge_one (hq g) hm
+  obtain ⟨Ck, _, hCk⟩ := step B q 𝓒 Dr m C1 δ₀ K Q A hm hδ₀ hC1 hK1 hKm hq hQ1 hQm hcl
+    (by
+      intro g
+      obtain ⟨δ, hδ, hδ1, hqδ, hcase⟩ := hgain g
+      refine ⟨δ, hδ, hδ1, ?_, hcase.imp id ?_⟩
+      · exact (mul_le_mul_of_nonneg_left
+          (pow_le_pow_of_le_one hδ.le hδ1 (Nat.le_succ b)) (hq0 g)).trans (hqδ.trans hCC1)
+      · rintro ⟨Ω, hΩ, hbd⟩
+        refine ⟨Ω, fun w hw => ⟨?_, ?_⟩, ?_⟩
+        · exact (hΩ w hw).1.trans (by gcongr; exact hq0 _)
+        · exact (hΩ w hw).2.trans (by gcongr; exact hq0 _)
         · intro ψ hψ c hc
-          have hs : 0 ≤ ∑ i ∈ B, c i := sum_nonneg (fun i hi => (hc i hi).1)
-          exact (hbd ψ hψ c hc).trans
-            (mul_le_mul_of_nonneg_right (mul_le_mul_of_nonneg_right hCC1 hδ.le) hs)
-  set K : ℝ := C1 ^ ((m : ℝ)⁻¹) with hK
-  set Q : G → ℝ := fun g => q g ^ ((m : ℝ)⁻¹) with hQ
-  have hKm : K ^ m = C1 := Real.rpow_inv_natCast_pow (by linarith) hm
-  have hK1 : 1 ≤ K := Real.one_le_rpow hC1 (by positivity)
-  have hQm : ∀ g, Q g ^ m = q g := fun g => Real.rpow_inv_natCast_pow (hq0 g) hm
-  have hQ1 : ∀ g, 1 ≤ Q g := fun g => Real.one_le_rpow (hq g) (by positivity)
-  obtain ⟨Ck, _, hCk⟩ := step B q 𝓒 Dr m C1 δ₀ K Q A hm hδ₀ hC1 hK1 hKm hq hQ1 hQm hcl hgain'
-    (m * (A + N))
+          have hs := sum_nonneg (fun i hi => (hc i hi).1)
+          exact (hbd ψ hψ c hc).trans (by gcongr)
+    ) (m * (A + N))
   refine ⟨words B (m * (A + N)), Ck, mem_letters B _, ?_⟩
   intro ψ hψ c hc g
-  have hqA : 0 < q g ^ A := pow_pos (by linarith [hq g]) _
-  have hc0 : ∀ l ∈ words B (m * (A + N)), 0 ≤ c l := by
-    intro l hl
-    by_contra h
-    push_neg at h
-    have h1 := hc l hl g
-    have h2 : c l * q g ^ A < 0 := mul_neg_of_neg_of_pos h hqA
-    linarith [norm_nonneg (List.foldr Dr ψ l g)]
-  have h := hCk ψ hψ c hc0 hc g
+  have hqA : 0 < q g ^ A := pow_pos (zero_lt_one.trans_le (hq g)) _
+  have h := hCk ψ hψ c (fun l hl =>
+    nonneg_of_mul_nonneg_left ((norm_nonneg _).trans (hc l hl g)) hqA) hc g
   rw [pow_mul, hQm, pow_add] at h
-  have h' : q g ^ A * (‖ψ g‖ * q g ^ N) ≤ q g ^ A * (Ck * ∑ l ∈ words B (m * (A + N)), c l) := by
-    linarith
-  exact le_of_mul_le_mul_left h' hqA
+  nlinarith only [h, hqA]
 
 end GlobalTheory
