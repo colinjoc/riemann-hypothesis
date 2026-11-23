@@ -53,66 +53,36 @@ public import Mathlib.Data.Fintype.EquivFin
 
 namespace PositivityTheory.Gud.Pf
 
+/-- A sign-symmetric list is its zero part together with its positive pairs. -/
+theorem symmetric_filter_decomposition {α : Type*} (l : List (α × ℝ))
+    (hl : (l.map (fun p => (p.1, -p.2))).Perm l) :
+    ((l.filter (fun p => p.2 = 0)) ++
+      (l.filter (fun p => 0 < p.2)).flatMap (fun p => [p, (p.1, -p.2)])).Perm l := by
+  have hn := hl.filter (fun p => decide (p.2 < 0))
+  simp only [List.filter_map, Function.comp_def, neg_lt_zero] at hn
+  have hp := List.map_append_flatMap_perm (l.filter (fun p => 0 < p.2))
+    id (fun p => [(p.1, -p.2)])
+  simp only [List.map_id, ← List.map_eq_flatMap] at hp
+  have hs := ((List.filter_append_perm (fun p => decide (0 < p.2))
+    (l.filter (fun p => !decide (p.2 = 0)))).append_left (l.filter (fun p => p.2 = 0))).trans
+      (List.filter_append_perm (fun p => decide (p.2 = 0)) l)
+  simp only [List.filter_filter, ← decide_not, ← Bool.decide_and,
+    not_lt, and_iff_left_of_imp ne_of_gt, ← lt_iff_le_and_ne] at hs
+  exact ((hp.symm.trans (hn.append_left _)).append_left _).trans hs
+
 theorem list_symmetric_pair_decomposition {α : Type*} : ∀ (n : ℕ) (l : List (α × ℝ)), l.length = n →
     List.Perm (l.map (fun p => (p.1, -p.2))) l →
     ∃ (a : List α) (b : List (α × ℝ)), (∀ p ∈ b, 0 < p.2 ∧ p ∈ l) ∧
       List.Perm (a.map (fun x => (x, (0 : ℝ))) ++ b.flatMap (fun p => [p, (p.1, -p.2)])) l := by
-  intro n
-  induction n using Nat.strong_induction_on with
-  | _ n ih =>
-  intro l hlen hl
-  rcases l with _ | ⟨p, l'⟩
-  · exact ⟨[], [], by simp, by simp⟩
-  by_cases h0 : p.2 = 0
-  · have hp : ((p.1, -p.2) : α × ℝ) = p := Prod.ext rfl (by simp [h0])
-    have hl' : List.Perm (l'.map (fun p => (p.1, -p.2))) l' := by
-      rw [List.map_cons, hp] at hl
-      exact hl.cons_inv
-    obtain ⟨a', b', hb', hperm'⟩ := ih l'.length (by simp at hlen; omega) l' rfl hl'
-    have hp0 : ((p.1, (0 : ℝ)) : α × ℝ) = p := Prod.ext rfl h0.symm
-    refine ⟨p.1 :: a', b', fun q hq => ⟨(hb' q hq).1, List.mem_cons_of_mem _ (hb' q hq).2⟩, ?_⟩
-    simp only [List.map_cons, List.cons_append, hp0]
-    exact hperm'.cons p
-  · have hnp : ((p.1, -p.2) : α × ℝ) ≠ p := by
-      intro h
-      have h2 := congrArg Prod.snd h
-      simp only at h2
-      exact h0 (by linarith)
-    have hmem : ((p.1, -p.2) : α × ℝ) ∈ p :: l' := hl.subset (by simp)
-    have hmem' : ((p.1, -p.2) : α × ℝ) ∈ l' := (List.mem_cons.mp hmem).resolve_left hnp
-    obtain ⟨s, t, rfl⟩ := List.append_of_mem hmem'
-    have hmid : List.Perm (p :: (s ++ (p.1, -p.2) :: t)) (p :: (p.1, -p.2) :: (s ++ t)) :=
-      List.perm_middle.cons p
-    have h1 : List.Perm ((p :: (p.1, -p.2) :: (s ++ t)).map (fun p => (p.1, -p.2)))
-        (p :: (p.1, -p.2) :: (s ++ t)) :=
-      ((hmid.map _).symm.trans hl).trans hmid
-    simp only [List.map_cons, neg_neg, Prod.mk.eta] at h1
-    have h2 : List.Perm ((s ++ t).map (fun p => (p.1, -p.2))) (s ++ t) :=
-      ((h1.trans (List.Perm.swap ((p.1, -p.2) : α × ℝ) p (s ++ t))).cons_inv).cons_inv
-    obtain ⟨a'', b'', hb'', hperm''⟩ :=
-      ih (s ++ t).length (by simp only [List.length_cons, List.length_append] at hlen ⊢; omega) (s ++ t) rfl h2
-    have hin : ∀ q ∈ b'', q ∈ p :: (s ++ (p.1, -p.2) :: t) := by
-      intro q hq
-      have hq' := (hb'' q hq).2
-      simp only [List.mem_cons, List.mem_append] at hq' ⊢
-      tauto
-    rcases lt_or_gt_of_ne h0 with hneg | hpos
-    · refine ⟨a'', (p.1, -p.2) :: b'', ?_, ?_⟩
-      · intro q hq
-        rcases List.mem_cons.mp hq with rfl | hq
-        · exact ⟨by simp only; linarith, hmem⟩
-        · exact ⟨(hb'' q hq).1, hin q hq⟩
-      · simp only [List.flatMap_cons, List.cons_append, List.nil_append, neg_neg, Prod.mk.eta]
-        exact List.perm_middle.trans ((List.perm_middle.cons _).trans (((hperm''.cons _).cons _).trans
-          ((List.Perm.swap p ((p.1, -p.2) : α × ℝ) (s ++ t)).trans hmid.symm)))
-    · refine ⟨a'', p :: b'', ?_, ?_⟩
-      · intro q hq
-        rcases List.mem_cons.mp hq with rfl | hq
-        · exact ⟨hpos, List.mem_cons_self ..⟩
-        · exact ⟨(hb'' q hq).1, hin q hq⟩
-      · simp only [List.flatMap_cons, List.cons_append, List.nil_append]
-        exact List.perm_middle.trans ((List.perm_middle.cons _).trans (((hperm''.cons _).cons _).trans
-          hmid.symm))
+  intro n l _ hl
+  refine ⟨(l.filter (fun p => p.2 = 0)).map Prod.fst,
+    l.filter (fun p => 0 < p.2), ?_, ?_⟩
+  · simp [List.mem_filter, and_comm]
+  · convert symmetric_filter_decomposition l hl using 2
+    rw [List.map_map]
+    refine (List.map_congr_left (g := id) ?_).trans (List.map_id _)
+    intro p hp
+    exact Prod.ext rfl (of_decide_eq_true (List.mem_filter.mp hp).2).symm
 
 theorem comb {α : Type*} (l : List (α × ℝ)) (hl : List.Perm (l.map (fun p => (p.1, -p.2))) l) :
     ∃ (a : List α) (b : List (α × ℝ)), (∀ p ∈ b, 0 < p.2 ∧ p ∈ l) ∧
